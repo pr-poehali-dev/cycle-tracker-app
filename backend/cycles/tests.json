@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Get cycles without auth returns 401",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401
+    }
+  ]
+}

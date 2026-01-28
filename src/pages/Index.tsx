@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,53 +7,176 @@ import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import Icon from '@/components/ui/icon';
 import { Calendar } from '@/components/ui/calendar';
+import { AuthModal } from '@/components/AuthModal';
+import { api, User, Predictions } from '@/lib/api';
+import { toast } from 'sonner';
 
 const Index = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [predictions, setPredictions] = useState<Predictions | null>(null);
+  
   const [mood, setMood] = useState(3);
   const [pain, setPain] = useState(0);
   const [flow, setFlow] = useState(2);
-
-  const cycleDay = 14;
-  const cycleLength = 28;
-  const nextPeriod = 14;
+  const [energy, setEnergy] = useState(7);
+  const [sleep, setSleep] = useState(7);
+  const [water, setWater] = useState(6);
+  const [exercise, setExercise] = useState(45);
+  const [calories, setCalories] = useState(1800);
+  const [weight, setWeight] = useState(62.5);
+  
+  const [activeSymptoms, setActiveSymptoms] = useState<string[]>(['Выделения', 'Головная боль', 'Тяга к еде']);
 
   const moodEmojis = ['😢', '😕', '😐', '🙂', '😊'];
   const flowLabels = ['Нет', 'Лёгкие', 'Средние', 'Обильные'];
 
-  const symptoms = [
-    { icon: 'Droplets', label: 'Выделения', active: true },
-    { icon: 'Zap', label: 'Судороги', active: false },
-    { icon: 'Brain', label: 'Головная боль', active: true },
-    { icon: 'Heart', label: 'Вздутие', active: false },
-    { icon: 'Coffee', label: 'Тяга к еде', active: true },
-    { icon: 'Moon', label: 'Усталость', active: false },
+  const symptomsList = [
+    { icon: 'Droplets', label: 'Выделения' },
+    { icon: 'Zap', label: 'Судороги' },
+    { icon: 'Brain', label: 'Головная боль' },
+    { icon: 'Heart', label: 'Вздутие' },
+    { icon: 'Coffee', label: 'Тяга к еде' },
+    { icon: 'Moon', label: 'Усталость' },
   ];
 
-  const activities = [
-    { icon: 'Utensils', label: 'Питание', value: 1800, max: 2000, unit: 'ккал' },
-    { icon: 'Dumbbell', label: 'Активность', value: 45, max: 60, unit: 'мин' },
-    { icon: 'Droplet', label: 'Вода', value: 6, max: 8, unit: 'стак' },
-    { icon: 'Moon', label: 'Сон', value: 7, max: 8, unit: 'ч' },
-  ];
+  useEffect(() => {
+    const token = api.getToken();
+    const savedUser = localStorage.getItem('user');
+    
+    if (token && savedUser) {
+      setUser(JSON.parse(savedUser));
+      loadUserData();
+    } else {
+      setTimeout(() => setShowAuthModal(true), 1000);
+    }
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const { predictions: pred } = await api.getCycles(12);
+      setPredictions(pred);
+      
+      const today = new Date().toISOString().split('T')[0];
+      const log = await api.getDailyLog(today);
+      
+      if (log.mood !== undefined) setMood(log.mood);
+      if (log.painLevel !== undefined) setPain(log.painLevel);
+      if (log.flowIntensity !== undefined) setFlow(log.flowIntensity);
+      if (log.energyLevel !== undefined) setEnergy(log.energyLevel);
+      if (log.sleepHours !== undefined) setSleep(log.sleepHours);
+      if (log.waterGlasses !== undefined) setWater(log.waterGlasses);
+      if (log.exerciseMinutes !== undefined) setExercise(log.exerciseMinutes);
+      if (log.caloriesIntake !== undefined) setCalories(log.caloriesIntake);
+      if (log.weight !== undefined) setWeight(log.weight);
+      
+      if (log.symptoms) {
+        setActiveSymptoms(log.symptoms.map(s => s.type));
+      }
+    } catch (error) {
+      console.error('Load data error:', error);
+    }
+  };
+
+  const handleSaveData = async () => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      await api.saveDailyLog({
+        date: today,
+        mood,
+        painLevel: pain,
+        flowIntensity: flow,
+        energyLevel: energy,
+        sleepHours: sleep,
+        waterGlasses: water,
+        exerciseMinutes: exercise,
+        caloriesIntake: calories,
+        weight,
+        symptoms: activeSymptoms.map(type => ({
+          type,
+          severity: 3,
+        })),
+      });
+      
+      toast.success('Данные сохранены!');
+    } catch (error) {
+      toast.error('Ошибка при сохранении данных');
+      console.error(error);
+    }
+  };
+
+  const toggleSymptom = (label: string) => {
+    setActiveSymptoms(prev =>
+      prev.includes(label) ? prev.filter(s => s !== label) : [...prev, label]
+    );
+  };
+
+  const handleLogout = () => {
+    api.clearToken();
+    localStorage.removeItem('user');
+    setUser(null);
+    toast.info('Вы вышли из системы');
+    setTimeout(() => setShowAuthModal(true), 500);
+  };
+
+  const userName = user?.name?.split(' ')[0] || 'Гость';
+  const cycleDay = predictions?.currentCycleDay || 14;
+  const cycleLength = 28;
+  const nextPeriod = predictions?.daysUntilPeriod || 14;
+  const currentPhase = predictions?.currentPhase || 'unknown';
+
+  const phaseNames: Record<string, string> = {
+    menstruation: 'Менструация',
+    follicular: 'Фолликулярная фаза',
+    ovulation: 'Овуляция',
+    luteal: 'Лютеиновая фаза',
+    unknown: 'Фаза не определена',
+  };
 
   const insights = [
-    { title: 'Овуляция скоро', desc: 'Через 3-5 дней — ваше фертильное окно', color: 'bg-[hsl(var(--ovulation))]' },
+    { title: 'Овуляция скоро', desc: predictions ? `${new Date(predictions.ovulation).toLocaleDateString('ru-RU')}` : 'Загрузка...', color: 'bg-[hsl(var(--ovulation))]' },
     { title: 'Рекомендация', desc: 'Отличный день для йоги и растяжки', color: 'bg-[hsl(var(--accent))]' },
     { title: 'Витамины', desc: 'Не забудьте принять фолиевую кислоту', color: 'bg-[hsl(var(--secondary))]' },
   ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[hsl(var(--accent))] via-background to-[hsl(var(--secondary))] pb-20">
+      <AuthModal
+        open={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          setShowAuthModal(false);
+          window.location.reload();
+        }}
+      />
+
       <div className="container max-w-6xl mx-auto px-4 py-6">
         <header className="flex items-center justify-between mb-8 animate-fade-in">
           <div>
-            <h1 className="text-3xl font-bold text-foreground mb-1">Привет, Мария 💜</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-1">Привет, {userName} 💜</h1>
             <p className="text-muted-foreground">День цикла: {cycleDay} из {cycleLength}</p>
           </div>
-          <Button variant="ghost" size="icon" className="rounded-full">
-            <Icon name="Settings" size={24} />
-          </Button>
+          <div className="flex items-center gap-2">
+            {user && user.avatar && (
+              <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-full" />
+            )}
+            {user ? (
+              <Button variant="ghost" size="icon" className="rounded-full" onClick={handleLogout}>
+                <Icon name="LogOut" size={24} />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setShowAuthModal(true)}>
+                <Icon name="LogIn" size={24} />
+              </Button>
+            )}
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
@@ -62,7 +185,7 @@ const Index = () => {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-2xl">Календарь цикла</CardTitle>
                 <Badge variant="secondary" className="text-sm font-medium">
-                  Фолликулярная фаза
+                  {phaseNames[currentPhase]}
                 </Badge>
               </div>
             </CardHeader>
@@ -101,12 +224,12 @@ const Index = () => {
                 </div>
                 <div className="bg-[hsl(var(--ovulation))] rounded-2xl p-4 text-center">
                   <Icon name="Heart" size={28} className="mx-auto mb-2 text-foreground" />
-                  <p className="text-2xl font-bold text-foreground">3-5</p>
+                  <p className="text-2xl font-bold text-foreground">{predictions ? Math.max(0, Math.floor((new Date(predictions.ovulation).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : '...'}</p>
                   <p className="text-sm text-foreground/80">дней до овуляции</p>
                 </div>
                 <div className="bg-[hsl(var(--fertile))] rounded-2xl p-4 text-center">
                   <Icon name="Sparkles" size={28} className="mx-auto mb-2 text-foreground" />
-                  <p className="text-2xl font-bold text-foreground">28</p>
+                  <p className="text-2xl font-bold text-foreground">{cycleLength}</p>
                   <p className="text-sm text-foreground/80">длина цикла</p>
                 </div>
               </div>
@@ -115,7 +238,7 @@ const Index = () => {
 
           <div className="space-y-6">
             {insights.map((insight, idx) => (
-              <Card key={idx} className={`border-2 shadow-md animate-fade-in`} style={{animationDelay: `${idx * 100}ms`}}>
+              <Card key={idx} className="border-2 shadow-md animate-fade-in" style={{animationDelay: `${idx * 100}ms`}}>
                 <CardContent className="pt-6">
                   <div className={`${insight.color} rounded-2xl p-4 mb-3`}>
                     <Icon name="Lightbulb" size={24} className="text-foreground" />
@@ -214,11 +337,12 @@ const Index = () => {
                     Симптомы
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {symptoms.map((symptom, idx) => (
+                    {symptomsList.map((symptom, idx) => (
                       <Button
                         key={idx}
-                        variant={symptom.active ? "default" : "outline"}
+                        variant={activeSymptoms.includes(symptom.label) ? "default" : "outline"}
                         className="h-auto py-3 rounded-xl flex flex-col items-center gap-2"
+                        onClick={() => toggleSymptom(symptom.label)}
                       >
                         <Icon name={symptom.icon} size={24} />
                         <span className="text-xs">{symptom.label}</span>
@@ -227,27 +351,53 @@ const Index = () => {
                   </div>
                 </div>
 
-                <Button className="w-full h-12 text-lg rounded-xl" size="lg">
+                <Button className="w-full h-12 text-lg rounded-xl" size="lg" onClick={handleSaveData}>
                   Сохранить данные
                 </Button>
               </CardContent>
             </Card>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {activities.map((activity, idx) => (
-                <Card key={idx} className="border-2 shadow-md">
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <Icon name={activity.icon} size={24} className="text-primary" />
-                      <span className="text-sm font-semibold">
-                        {activity.value}/{activity.max} {activity.unit}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium mb-2">{activity.label}</p>
-                    <Progress value={(activity.value / activity.max) * 100} className="h-2" />
-                  </CardContent>
-                </Card>
-              ))}
+              <Card className="border-2 shadow-md">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Icon name="Utensils" size={24} className="text-primary" />
+                    <span className="text-sm font-semibold">{calories}/2000 ккал</span>
+                  </div>
+                  <p className="text-sm font-medium mb-2">Питание</p>
+                  <Progress value={(calories / 2000) * 100} className="h-2" />
+                </CardContent>
+              </Card>
+              <Card className="border-2 shadow-md">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Icon name="Dumbbell" size={24} className="text-primary" />
+                    <span className="text-sm font-semibold">{exercise}/60 мин</span>
+                  </div>
+                  <p className="text-sm font-medium mb-2">Активность</p>
+                  <Progress value={(exercise / 60) * 100} className="h-2" />
+                </CardContent>
+              </Card>
+              <Card className="border-2 shadow-md">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Icon name="Droplet" size={24} className="text-primary" />
+                    <span className="text-sm font-semibold">{water}/8 стак</span>
+                  </div>
+                  <p className="text-sm font-medium mb-2">Вода</p>
+                  <Progress value={(water / 8) * 100} className="h-2" />
+                </CardContent>
+              </Card>
+              <Card className="border-2 shadow-md">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <Icon name="Moon" size={24} className="text-primary" />
+                    <span className="text-sm font-semibold">{sleep}/8 ч</span>
+                  </div>
+                  <p className="text-sm font-medium mb-2">Сон</p>
+                  <Progress value={(sleep / 8) * 100} className="h-2" />
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
@@ -262,7 +412,7 @@ const Index = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="text-center py-8">
-                    <p className="text-5xl font-bold mb-2">62.5</p>
+                    <p className="text-5xl font-bold mb-2">{weight}</p>
                     <p className="text-muted-foreground mb-4">кг</p>
                     <div className="flex items-center justify-center gap-2 text-sm text-green-600">
                       <Icon name="TrendingDown" size={16} />

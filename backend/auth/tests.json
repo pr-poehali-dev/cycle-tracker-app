@@ -1,0 +1,24 @@
+{
+  "tests": [
+    {
+      "name": "Get Google auth URL",
+      "method": "GET",
+      "path": "/?provider=google&action=login",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "authUrl": "string"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get Yandex auth URL",
+      "method": "GET",
+      "path": "/?provider=yandex&action=login",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "authUrl": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
